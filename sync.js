@@ -104,21 +104,10 @@ async function main(){
 
   console.log(`📊 Got ${games.length} total matches from API`);
 
-  // ── DEBUG: print unique status values from the API ──────────────────────────
-  const statuses = [...new Set(games.map(m=>
-    m.status || m.state || m.match_status || m.matchStatus || "MISSING"
-  ))];
-  console.log(`\n🔍 Unique status values in API response: ${JSON.stringify(statuses)}`);
-
-  // ── DEBUG: print first 3 finished-looking matches in full ───────────────────
-  const sample = games.filter(m=>{
-    const s=(m.status||m.state||m.match_status||m.matchStatus||"").toString();
-    return s !== "" && s !== "scheduled" && s !== "upcoming" && s !== "0";
-  }).slice(0,3);
-  if(sample.length){
-    console.log("\n🔍 Sample non-scheduled matches:");
-    sample.forEach(m=>console.log(JSON.stringify(m,null,2)));
-  }
+  // ── DEBUG: dump first 2 raw match objects so we can see ALL field names ──────
+  console.log("\n🔍 RAW first 2 matches from API:");
+  console.log(JSON.stringify(games.slice(0,2), null, 2));
+  console.log("\n🔍 ALL keys in first match:", Object.keys(games[0]||{}));
   // ── END DEBUG ────────────────────────────────────────────────────────────────
 
   // Try every reasonable finished-status pattern
