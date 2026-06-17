@@ -1,0 +1,15 @@
+{
+  "name": "wc2026-sync",
+  "version": "1.0.0",
+  "description": "Auto-sync WC2026 results from worldcup26.ir to Firebase Firestore",
+  "main": "sync.js",
+  "scripts": {
+    "sync": "node sync.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  }
+}
