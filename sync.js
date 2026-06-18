@@ -20,6 +20,18 @@ const db = admin.firestore();
 // Schema: { matches: [{ team1, team2, score: { ft: [hg, ag] }, ... }] }
 const API_URL = "https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json";
 
+// ── Match IDs to EXCLUDE from sync (results before the fresh-start date) ────────
+// These are the first 20 matches played Jun 11-17 that we're not counting
+const EXCLUDED_MATCH_IDS = new Set([
+  "a01","a02",                          // Jun 11 — Mexico, South Korea
+  "b01","d01",                          // Jun 12 — Canada, USA
+  "b02","c01","c02",                    // Jun 13 — Qatar, Brazil, Haiti
+  "d02","e01","e02","f01","f02",        // Jun 14 — Australia, Germany, Ivory Coast, Netherlands, Sweden
+  "g01","g02","h01","h02",             // Jun 15 — Belgium, Iran, Spain, Saudi Arabia
+  "i01","i02",                          // Jun 16 — France, Iraq
+  "j01","j02","k01","l01","l02","k02", // Jun 17 — Argentina, Austria, Portugal, England, Ghana, Colombia
+]);
+
 // ── Match ID mapping ──────────────────────────────────────────────────────────
 // "HomeTeam|AwayTeam" → Firestore document ID
 const MATCH_MAP = {
@@ -155,6 +167,10 @@ async function main() {
     const team2    = m.team2;       // away team name
 
     const mid = lookupMatchId(team1, team2);
+    if(!mid){ console.log(`  ⚠️  No match ID: "${team1}" vs "${team2}"`); noMatch++; continue; }
+
+    // Skip matches before the fresh-start cutoff
+    if(EXCLUDED_MATCH_IDS.has(mid)){ skipped++; continue; }
     if (!mid) {
       console.log(`  ⚠️  No match ID: "${team1}" vs "${team2}"`);
       noMatch++;
