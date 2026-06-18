@@ -80,6 +80,8 @@ function lookupMatchId(team1, team2){
   return MATCH_MAP[`${h}|${a}`] || null;
 }
 
+
+
 // ── Fetch JSON ────────────────────────────────────────────────────────────────
 function fetchJSON(url){
   return new Promise((resolve, reject) => {
@@ -122,6 +124,7 @@ async function main(){
       noMatch++;
       continue;
     }
+
     newResults[mid] = { h: Number(hg), a: Number(ag) };
     const line = `  ✅ ${mid.padEnd(3)} ${m.team1} ${hg}–${ag} ${m.team2}`;
     console.log(line);
