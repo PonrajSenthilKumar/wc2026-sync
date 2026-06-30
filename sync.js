@@ -121,9 +121,39 @@ const MATCH_MAP = {
   "Panama|England":                   "l06",
 };
 
+// ── Round of 32 match ID mapping (Matches 73–88) ───────────────────────────────
+// "HomeTeam|AwayTeam" → Firestore document ID
+// NOTE: team names here must exactly match openfootball's naming for the source feed.
+// Update these pairings once the actual Round of 32 fixture list (post group-stage
+// qualification) is confirmed — placeholders below reflect the originally planned draw.
+const KO_MATCH_MAP = {
+  "South Africa|Canada":              "ko01",
+  "Brazil|Japan":                     "ko02",
+  "Germany|Paraguay":                 "ko03",
+  "Netherlands|Morocco":              "ko04",
+  "Ivory Coast|Norway":               "ko05",
+  "Switzerland|Algeria":              "ko06",
+  "Mexico|Ecuador":                   "ko07",
+  "USA|Bosnia & Herzegovina":         "ko08",
+  "France|Sweden":                    "ko09",
+  "England|DR Congo":                 "ko10",
+  "Belgium|Senegal":                  "ko11",
+  "Spain|Austria":                    "ko12",
+  "Portugal|Croatia":                 "ko13",
+  "Australia|Egypt":                  "ko14",
+  "Colombia|Ghana":                   "ko15",
+  "Argentina|Cape Verde":             "ko16",
+};
+
 function lookupMatchId(team1, team2) {
   return MATCH_MAP[`${team1}|${team2}`]
       || MATCH_MAP[`${team2}|${team1}`]
+      || null;
+}
+
+function lookupKoMatchId(team1, team2) {
+  return KO_MATCH_MAP[`${team1}|${team2}`]
+      || KO_MATCH_MAP[`${team2}|${team1}`]
       || null;
 }
 
@@ -158,41 +188,73 @@ async function main() {
   console.log(`📊 ${matches.length} total matches · ${completed.length} completed`);
 
   let updated = 0, skipped = 0, noMatch = 0;
+  let koUpdated = 0;
   const batch  = db.batch();
   const logged = [];
+  const koLogged = [];
 
   for (const m of completed) {
     const [hg, ag] = m.score.ft;   // full-time score array [homeGoals, awayGoals]
     const team1    = m.team1;       // home team name exactly as in MATCH_MAP
     const team2    = m.team2;       // away team name
 
+    // ── Try group stage match first ──────────────────────────────────────────
     const mid = lookupMatchId(team1, team2);
-    if(!mid){ console.log(`  ⚠️  No match ID: "${team1}" vs "${team2}"`); noMatch++; continue; }
+    if (mid) {
+      // Skip matches before the fresh-start cutoff
+      if (EXCLUDED_MATCH_IDS.has(mid)) { skipped++; continue; }
 
-    // Skip matches before the fresh-start cutoff
-    if(EXCLUDED_MATCH_IDS.has(mid)){ skipped++; continue; }
-    if (!mid) {
-      console.log(`  ⚠️  No match ID: "${team1}" vs "${team2}"`);
-      noMatch++;
+      batch.set(db.collection("results").doc(mid), {
+        hg:       Number(hg),
+        ag:       Number(ag),
+        syncedAt: new Date().toISOString(),
+        source:   "openfootball/worldcup.json",
+      });
+
+      const line = `  ✅ ${mid.padEnd(4)} ${team1} ${hg}–${ag} ${team2}`;
+      console.log(line);
+      logged.push(line);
+      updated++;
       continue;
     }
 
-    batch.set(db.collection("results").doc(mid), {
-      hg:       Number(hg),
-      ag:       Number(ag),
-      syncedAt: new Date().toISOString(),
-      source:   "openfootball/worldcup.json",
-    });
+    // ── Try Round of 32 match ────────────────────────────────────────────────
+    const koMid = lookupKoMatchId(team1, team2);
+    if (koMid) {
+      // Round of 32 lives in a SEPARATE Firestore collection: ko_results
+      // Penalty winner (if any) comes from the source feed's penalty shootout
+      // info when present; otherwise left for admin to enter manually.
+      const koData = {
+        hg:       Number(hg),
+        ag:       Number(ag),
+        syncedAt: new Date().toISOString(),
+        source:   "openfootball/worldcup.json",
+      };
+      // Some openfootball feeds expose a "score.p" (penalty shootout) field
+      // as [homePens, awayPens] when the match went to penalties.
+      if (m.score && Array.isArray(m.score.p)) {
+        const [hp, ap] = m.score.p;
+        koData.penWinner = hp > ap ? team1 : team2;
+      }
 
-    const line = `  ✅ ${mid.padEnd(4)} ${team1} ${hg}–${ag} ${team2}`;
-    console.log(line);
-    logged.push(line);
-    updated++;
+      batch.set(db.collection("ko_results").doc(koMid), koData);
+
+      const line = `  ⚡ ${koMid.padEnd(4)} ${team1} ${hg}–${ag} ${team2}${koData.penWinner ? ` (pens: ${koData.penWinner})` : ""}`;
+      console.log(line);
+      koLogged.push(line);
+      koUpdated++;
+      continue;
+    }
+
+    // ── No match found in either map ─────────────────────────────────────────
+    console.log(`  ⚠️  No match ID: "${team1}" vs "${team2}"`);
+    noMatch++;
   }
 
-  if (updated > 0) {
+  const totalUpdated = updated + koUpdated;
+  if (totalUpdated > 0) {
     await batch.commit();
-    console.log(`\n✅ Committed ${updated} result(s) to Firestore`);
+    console.log(`\n✅ Committed ${updated} group result(s) + ${koUpdated} R32 result(s) to Firestore`);
   } else {
     console.log("\nℹ️  No completed results to write");
   }
@@ -200,12 +262,13 @@ async function main() {
   // Write sync metadata so Admin tab can show last-sync time
   await db.collection("meta").doc("syncStatus").set({
     lastSync: new Date().toISOString(),
-    updated, skipped, noMatch,
+    updated, koUpdated, skipped, noMatch,
     source:   "github-actions / openfootball",
     log:      logged,
+    koLog:    koLogged,
   }, { merge: true });
 
-  console.log(`📈 Summary: ${updated} written, ${skipped} skipped, ${noMatch} unmapped`);
+  console.log(`📈 Summary: ${updated} group written, ${koUpdated} R32 written, ${skipped} skipped, ${noMatch} unmapped`);
   console.log(`🕐 Sync complete: ${new Date().toISOString()}\n`);
 }
 
